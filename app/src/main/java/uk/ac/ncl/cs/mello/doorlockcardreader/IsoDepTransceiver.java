@@ -46,15 +46,11 @@ public class IsoDepTransceiver implements Runnable{
         int messageCounter = 0;
         try {
             isoDep.connect();
-            //byte[] command = BuildSelectApdu(DOORLOCK_AID);
             byte[] response = isoDep.transceive(createSelectAidApdu(AID_ANDROID));
+            onMessageReceived.onMessage(response);
+            String challenge = new String(response) + " "+ secureRandom.nextInt();
             while (isoDep.isConnected() && !Thread.interrupted()) {
-                String message = "Message from IsoDep " + messageCounter++;
-                byte[] number = new byte[16];
-                secureRandom.nextBytes(number);
-                String a = Integer.toString(secureRandom.nextInt());
-                response = isoDep.transceive(a.getBytes());
-                //response = isoDep.transceive(message.getBytes());
+                response = isoDep.transceive(challenge.getBytes());
                 onMessageReceived.onMessage(response);
             }
             isoDep.close();
