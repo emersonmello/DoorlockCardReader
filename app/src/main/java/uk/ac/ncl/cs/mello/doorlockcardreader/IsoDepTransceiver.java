@@ -2,6 +2,7 @@ package uk.ac.ncl.cs.mello.doorlockcardreader;
 
 
 import android.nfc.tech.IsoDep;
+import android.util.Log;
 
 import java.io.IOException;
 import java.security.SecureRandom;
@@ -51,7 +52,15 @@ public class IsoDepTransceiver implements Runnable{
             String challenge = new String(response) + " "+ secureRandom.nextInt();
             while (isoDep.isConnected() && !Thread.interrupted()) {
                 response = isoDep.transceive(challenge.getBytes());
-                onMessageReceived.onMessage(response);
+                String sResp = new String (response);
+                if (!sResp.equals("not yet")){
+                    onMessageReceived.onMessage(response);
+                    Log.i("Eee","=========================>>>>>>>");
+                }else{
+                    challenge = "OK, waiting";
+                }
+
+
             }
             isoDep.close();
         }
