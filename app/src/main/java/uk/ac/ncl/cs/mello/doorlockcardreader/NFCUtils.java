@@ -1,39 +1,26 @@
 package uk.ac.ncl.cs.mello.doorlockcardreader;
 
-
 import android.nfc.tech.IsoDep;
-import android.util.Log;
 
-import java.io.IOException;
 import java.security.SecureRandom;
 
-public class IsoDepTransceiver implements Runnable{
+/**
+ * Created by mello on 31/05/16.
+ */
+public abstract class NFCUtils {
 
-    public interface OnMessageReceived {
-        void onMessage(byte[] message);
-        void onError(Exception exception);
-    }
-
-    private static final String DOORLOCK_AID = "F222222222";
+    public static final String DOORLOCK_AID = "F222222222";
     // Format: [Class | Instruction | Parameter 1 | Parameter 2]
-    private static final String SELECT_APDU_HEADER = "00A40400";
+    public static final String SELECT_APDU_HEADER = "00A40400";
     // "OK" status word sent in response to SELECT AID command (0x9000)
-    private static final byte[] SELECT_OK_SW = {(byte) 0x90, (byte) 0x00};
-    private static final byte[] CLA_INS_P1_P2 = { 0x00, (byte)0xA4, 0x04, 0x00 };
+    public static final byte[] SELECT_OK_SW = {(byte) 0x90, (byte) 0x00};
+    public static final byte[] CLA_INS_P1_P2 = { 0x00, (byte)0xA4, 0x04, 0x00 };
     //private static final byte[] AID_ANDROID = BuildSelectApdu(DOORLOCK_AID);//{ (byte)0xF0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 };
-    private static final byte[] AID_ANDROID = { (byte)0xF0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 };
-    private IsoDep isoDep;
-    private OnMessageReceived onMessageReceived;
-
-    private SecureRandom secureRandom = new SecureRandom();
-
-    public IsoDepTransceiver(IsoDep isoDep, OnMessageReceived onMessageReceived) {
-        this.isoDep = isoDep;
-        this.onMessageReceived = onMessageReceived;
-    }
+    public static final byte[] AID_ANDROID = { (byte)0xF0, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 };
+    public IsoDep isoDep;
 
 
-    private byte[] createSelectAidApdu(byte[] aid) {
+    public static byte[] createSelectAidApdu(byte[] aid) {
         byte[] result = new byte[6 + aid.length];
         System.arraycopy(CLA_INS_P1_P2, 0, result, 0, CLA_INS_P1_P2.length);
         result[4] = (byte)aid.length;
@@ -42,32 +29,6 @@ public class IsoDepTransceiver implements Runnable{
         return result;
     }
 
-    @Override
-    public void run() {
-        int messageCounter = 0;
-        try {
-            isoDep.connect();
-            byte[] response = isoDep.transceive(createSelectAidApdu(AID_ANDROID));
-            onMessageReceived.onMessage(response);
-            String challenge = new String(response) + " "+ secureRandom.nextInt();
-            while (isoDep.isConnected() && !Thread.interrupted()) {
-                response = isoDep.transceive(challenge.getBytes());
-                String sResp = new String (response);
-                if (!sResp.equals("not yet")){
-                    onMessageReceived.onMessage(response);
-                    Log.i("Eee","=========================>>>>>>>");
-                }else{
-                    challenge = "OK, waiting";
-                }
-
-
-            }
-            isoDep.close();
-        }
-        catch (IOException e) {
-            onMessageReceived.onError(e);
-        }
-    }
 
 
 
@@ -118,5 +79,6 @@ public class IsoDepTransceiver implements Runnable{
         }
         return data;
     }
+
 
 }
