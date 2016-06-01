@@ -48,14 +48,8 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
             public void onClick(View view) {
                 isoDepAdapter.clearMessages();
                 Toast.makeText(view.getContext(),"Done",Toast.LENGTH_SHORT).show();
-
-                //Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                  //      .setAction("Action", null).show();
             }
         });
-
-
-
     }
 
     @Override
@@ -72,6 +66,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
     @Override
     public void onTagDiscovered(Tag tag) {
+        Log.i("CardReader","Tag discovery" + tag.toString());
         IsoDep isoDep = IsoDep.get(tag);
         isoDep.setTimeout(3000);
         mMyTask = new MyTask();
@@ -83,48 +78,47 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
         @Override
         protected String doInBackground(IsoDep... params) {
-            int messageCounter = 0;
+            String result = "";
             try {
                 IsoDep isoDep = params[0];
                 isoDep.connect();
                 byte[] response = isoDep.transceive(NFCUtils.createSelectAidApdu(NFCUtils.AID_ANDROID));
-                publishProgress(new String(response));
 
-                String challenge = new String(response); //+ " "+ secureRandom.nextInt();
+                //handshake
+                Log.i("CardReader","Response: " + new String(response));
+                publishProgress(new String(response));
+                String message = DoorProtocol.READY.getDesc();
 
                 while (isoDep.isConnected() && !Thread.interrupted()) {
-                    response = isoDep.transceive(challenge.getBytes());
+                    response = isoDep.transceive(message.getBytes());
                     String sResp = new String (response);
+                    Log.i("CardReader","Response: " + sResp);
 
-                    if (!sResp.equals("not yet")){
-                        publishProgress(new String(response));
-                        //Log.i("Eee","=========================>>>>>>>");
-                    }else{
-                        challenge = "OK, waiting";
+                    if (sResp.equals(DoorProtocol.WAIT.getDesc())){
+                        publishProgress(sResp);
+                        Thread.sleep(2000);
+                    }else if (sResp.equals(DoorProtocol.DONE.getDesc())){
+                        publishProgress(sResp);
+                        result = "done";
+                        return result;
                     }
-
-
                 }
+                Log.i("CardReader","Losing connection..bye bye");
                 isoDep.close();
             }
             catch (IOException e) {
                 publishProgress(e.getMessage());
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                Log.i("ERROR", e.toString());
             }
-
-
-            return null;
-        }
-
-
-
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
+            return result;
         }
 
         @Override
         protected void onPostExecute(String s) {
             super.onPostExecute(s);
+            isoDepAdapter.addMessage(s);
         }
 
         @Override
