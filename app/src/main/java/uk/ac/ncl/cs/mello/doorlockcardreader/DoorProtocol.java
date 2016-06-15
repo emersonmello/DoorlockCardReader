@@ -7,7 +7,8 @@ public enum DoorProtocol {
     HELLO((short) 1, "1"),
     READY((short) 2, "2"),
     WAIT((short) 3, "3"),
-    DONE((short) 4, "4");
+    ERROR((short) 4, "4"),
+    DONE((short) 5, "5");
 
     private final short id;
     private final String desc;
