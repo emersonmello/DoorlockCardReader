@@ -1,5 +1,6 @@
 package uk.ac.ncl.cs.mello.doorlockcardreader;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
@@ -11,6 +12,7 @@ import android.preference.PreferenceManager;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.Menu;
@@ -19,7 +21,14 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements NfcAdapter.ReaderCallback {
 
@@ -30,7 +39,10 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     private ListView listView;
     private IsoDepAdapter isoDepAdapter;
     private MyTask mMyTask = null;
+    private UAFAuthRequestTask mUafAuthRequestTask;
     private SharedPreferences mSharedPreferences;
+    private String mUAFMessage;
+    private boolean mDone;
     private int mDoorIcon;
 
 
@@ -78,12 +90,19 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         Log.i("CardReader", "Tag discovery" + tag.toString());
         IsoDep isoDep = IsoDep.get(tag);
         isoDep.setTimeout(3000);
-        mMyTask = new MyTask();
+        Log.i("CardReader", "MaxTransceiveLength: " + isoDep.getMaxTransceiveLength());
+        mMyTask = new MyTask(this);
         mMyTask.execute(isoDep);
     }
 
 
     public class MyTask extends AsyncTask<IsoDep, String, String> {
+
+        private MainActivity mMainActivity;
+
+        public MyTask(MainActivity activity) {
+            this.mMainActivity = activity;
+        }
 
         @Override
         protected String doInBackground(IsoDep... params) {
@@ -93,32 +112,97 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 isoDep.connect();
                 byte[] response = isoDep.transceive(NFCUtils.createSelectAidApdu(NFCUtils.AID_ANDROID));
 
-                publishProgress(new String(response));
+                String sResp = new String(response);
+                publishProgress(sResp);
 
+                if (sResp.equals(DoorProtocol.HELLO.getDesc())) {
+                    mDone = false;
+                    mUafAuthRequestTask = new UAFAuthRequestTask(this.mMainActivity);
+                    String url = "http://10.66.66.27:8123/fidouaf/v1/public/authRequest";
+                    // mUafAuthRequestTask.execute(url);
+                    mUAFMessage = "";
+                    try {
+                        mUAFMessage = HttpUtils.get(url).getPayload();
+                    } catch (NoSuchAlgorithmException e) {
+                        e.printStackTrace();
+                    } catch (KeyManagementException e) {
+                        e.printStackTrace();
+                    }
+
+
+                }
                 //handshake
-                String message = DoorProtocol.READY.getDesc();
+                //String message = mUAFMessage; //DoorProtocol.READY.getDesc();
+
+                ArrayList<String> arrayList = (ArrayList<String>) splitEqually(mUAFMessage, 260);
+
+//                Log.d("CardReader", "Message : " + mUAFMessage);
+//                Log.d("CardReader", "Message length: " + mUAFMessage.length());
+//                Log.d("CardReader", "Message length: " + arrayList.size() + " >>> " + arrayList.get(1).length());
+
+                String message = "BLOCK:" + arrayList.size();
+
+                boolean uafResponse = false;
+                int pos = 0;
 
                 while (isoDep.isConnected() && !Thread.interrupted()) {
 
                     response = isoDep.transceive(message.getBytes());
-                    String sResp = new String(response);
+                    sResp = new String(response);
+                    if (sResp.equals("NEXT")) {
+                        for (int i = 0; i < arrayList.size(); i++) {
+                            isoDep.transceive(arrayList.get(i).getBytes());
+                        }
+                        message = DoorProtocol.READY.getDesc();
+                    } else {
 
-                    if (sResp.equals(DoorProtocol.WAIT.getDesc())) {
-                        publishProgress("wait...");
-                        Log.d("nfcloop", "wait");
-                        Thread.sleep(2000);
-                    } else if (sResp.equals(DoorProtocol.DONE.getDesc())) {
-                        publishProgress("done!");
-                        Log.d("nfcloop", "done");
-                        result = "done";
-                        mDoorIcon = R.mipmap.open;
-                        return result;
-                    } else if (sResp.equals(DoorProtocol.ERROR.getDesc())) {
-                        publishProgress("error!");
-                        Log.d("nfcloop", "error");
-                        result = "error";
-                        mDoorIcon = R.mipmap.close;
-                        return result;
+                        if (!uafResponse) {
+                            if (sResp.equals(DoorProtocol.WAIT.getDesc())) {
+                                publishProgress("wait...");
+                                Log.d("nfcloop", "wait");
+                                Thread.sleep(2000);
+                                message = DoorProtocol.READY.getDesc();
+                            } else if (sResp.equals(DoorProtocol.DONE.getDesc())) {
+                                publishProgress("done!");
+                                Log.d("nfcloop", "done");
+                                result = "done";
+                                message = "RESPONSE";
+                                uafResponse = true;
+//                            mDoorIcon = R.mipmap.open;
+//                            return result;
+                            } else if (sResp.equals(DoorProtocol.ERROR.getDesc())) {
+                                publishProgress("error!");
+                                Log.d("nfcloop", "error");
+                                result = "error";
+                                mDoorIcon = R.mipmap.close;
+                                return result;
+                            }
+                        } else {
+                            Log.d("cardreader","uafResponse: " + sResp);
+                            String uafResponseJson = sResp;
+                            StringBuffer res = new StringBuffer();
+                            String decoded = "";
+                            try {
+                                JSONObject json = new JSONObject(uafResponseJson);
+                                decoded = json.getString("uafProtocolMessage").replace("\\", "");
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                            res.append("#uafMessageegOut\n" + decoded);
+                            res.append("\n\n#ServerResponse\n");
+                            String url = "http://10.66.66.27:8123/fidouaf/v1/public/authResponse";
+                            String serverResponse = HttpUtils.post(url, decoded).getPayload();
+                            res.append(serverResponse);
+                            String r = res.toString();
+                            Log.d("cardreader","ServerResponse: " + r);
+
+                            // TODO Check if it is valid response
+                            // IF VALID, then door opening and sending a positive response to card
+                            mDoorIcon = R.mipmap.open;
+                            isoDep.transceive(DoorProtocol.GRANTED.getDesc().getBytes());
+                            uafResponse = false;
+                            return result;
+                        }
                     }
                 }
                 Log.d("CardReader", "Losing connection..bye bye");
@@ -213,5 +297,43 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         return super.onOptionsItemSelected(item);
     }
 
+    public static List<String> splitEqually(String text, int size) {
+        List<String> ret = new ArrayList<String>((text.length() + size - 1) / size);
+        for (int start = 0; start < text.length(); start += size) {
+            ret.add(text.substring(start, Math.min(text.length(), start + size)));
+        }
+        return ret;
+    }
+
+
+    public class UAFAuthRequestTask extends AsyncTask<String, Integer, String> {
+
+        private String result;
+        private MainActivity mMainActivity;
+
+        public UAFAuthRequestTask(MainActivity activity) {
+            mMainActivity = activity;
+        }
+
+        @Override
+        protected String doInBackground(String... args) {
+            try {
+                result = HttpUtils.get(args[0]).getPayload();
+            } catch (Exception e) {
+                return "";
+            }
+            return result;
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            this.result = result;
+            mUAFMessage = result;
+            mDone = true;
+            mUafAuthRequestTask = null;
+        }
+
+
+    }
 
 }
