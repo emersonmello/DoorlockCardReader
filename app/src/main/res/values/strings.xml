@@ -1,5 +1,27 @@
 <resources>
-    <string name="app_name">DoorlockCardReader</string>
+
+
+    <string name="app_name">Door Lock</string>
     <string name="action_settings">Settings</string>
     <string name="activity_into">Hello</string>
+    <string name="door_message">Locked</string>
+    <string name="action_reset">Reset</string>
+    <string name="title_activity_settings">Settings</string>
+
+    <!-- Strings related to Settings -->
+
+    <string name="pref_title_server_endpoint">Server Endpoint</string>
+    <string name="pref_default_server_endpoint">http://10.66.66.27:8123</string>
+    <string name="pref_title_degreg_op_request">Deregistration Operation Request</string>
+    <string name="pref_default_dereg_op_request">/fidouaf/v1/public/deregRequest</string>
+    <string name="pref_title_auth_op_response">Authentication Operation Response</string>
+    <string name="pref_default_auth_op_response">/fidouaf/v1/public/authResponse</string>
+    <string name="pref_title_auth_op_request">Authentication Operation Request</string>
+    <string name="pref_default_auth_op_request">/fidouaf/v1/public/authRequest</string>
+    <string name="pref_title_reg_op_response">Registration Operation Response</string>
+    <string name="pref_default_reg_op_response">/fidouaf/v1/public/regResponse</string>
+    <string name="pref_title_reg_op_request">Registration Operation Request</string>
+    <string name="pref_default_reg_op_request">/fidouaf/v1/public/regRequest</string>
+
+
 </resources>

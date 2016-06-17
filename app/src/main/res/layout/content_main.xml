@@ -17,13 +17,14 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
         <ImageView
             android:layout_width="wrap_content"
-            android:layout_height="200dp"
+            android:layout_height="400dp"
             android:src="@mipmap/close"
             android:id="@+id/img_logo"
+            android:layout_gravity="center"
             android:contentDescription="Logo"
             />
         <TextView
@@ -33,9 +34,9 @@
             android:layout_marginRight="@dimen/activity_horizontal_margin"
             android:layout_marginLeft="@dimen/activity_horizontal_margin"
             android:paddingRight="@dimen/activity_horizontal_margin"
-            android:text="Closed"
-            android:id="@+id/door_status"
-            android:layout_gravity="center_vertical"
+            android:text="@string/door_message"
+            android:id="@+id/door_message"
+            android:layout_gravity="center"
             android:textAppearance="?android:attr/textAppearanceLarge"
             />
 
@@ -46,6 +47,8 @@
         android:id="@+id/listView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:visibility="gone"
+        android:layout_marginTop="@dimen/activity_vertical_margin"
         android:layout_below="@+id/intro" >
     </ListView>
 </LinearLayout>

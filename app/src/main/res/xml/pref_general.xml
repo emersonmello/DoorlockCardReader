@@ -1,0 +1,52 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_server_endpoint"
+        android:inputType="textUri"
+        android:key="fido_server_endpoint"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_server_endpoint" />
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_reg_op_request"
+        android:inputType="textUri"
+        android:key="fido_reg_request"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_reg_op_request" />
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_reg_op_response"
+        android:inputType="textUri"
+        android:key="fido_reg_response"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_reg_op_response" />
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_auth_op_request"
+        android:inputType="textUri"
+        android:key="fido_auth_request"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_auth_op_request" />
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_auth_op_response"
+        android:inputType="textUri"
+        android:key="fido_auth_response"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_auth_op_response" />
+    <EditTextPreference
+        android:defaultValue="@string/pref_default_dereg_op_request"
+        android:inputType="textUri"
+        android:key="fido_dereg_request"
+        android:maxLines="1"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_title_degreg_op_request" />
+
+</PreferenceScreen>
