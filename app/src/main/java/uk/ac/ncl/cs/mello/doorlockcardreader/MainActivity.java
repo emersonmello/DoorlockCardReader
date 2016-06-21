@@ -25,8 +25,11 @@ import com.google.gson.Gson;
 
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import static uk.ac.ncl.cs.mello.doorlockcardreader.DoorProtocol.*;
 
 public class MainActivity extends AppCompatActivity implements NfcAdapter.ReaderCallback {
 
@@ -38,12 +41,6 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     private IsoDepAdapter isoDepAdapter;
     private CardCommunicationTask mCardCommunicationTask = null;
     private SharedPreferences mSharedPreferences;
-    private String mUAFMessage;
-    private boolean mDoorIsLocked;
-    private String mDoorMessage;
-    private String lastReceivedMessage;
-    private String lastSentMessage;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,21 +64,14 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 Toast.makeText(view.getContext(), "Done", Toast.LENGTH_SHORT).show();
             }
         });
-        initialState();
         ImageView imageView = (ImageView) findViewById(R.id.img_logo);
         TextView doorStatus = (TextView) findViewById(R.id.door_message);
         imageView.setImageResource(R.mipmap.close);
         doorStatus.setText(R.string.door_message);
-    }
-
-
-    public void initialState() {
-        mDoorMessage = "Locked";
-        mDoorIsLocked = true;
-        lastReceivedMessage = "";
-        lastSentMessage = "";
-        mUAFMessage = "";
-        mCardCommunicationTask = null;
+        if (mCardCommunicationTask != null) {
+            mCardCommunicationTask.onCancelled();
+            mCardCommunicationTask = null;
+        }
     }
 
 
@@ -89,7 +79,10 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     public void onPause() {
         super.onPause();
         nfcAdapter.disableReaderMode(this);
-        mCardCommunicationTask = null;
+        if (mCardCommunicationTask != null) {
+            mCardCommunicationTask.onCancelled();
+            mCardCommunicationTask = null;
+        }
     }
 
     @Override
@@ -100,200 +93,178 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
     @Override
     public void onTagDiscovered(Tag tag) {
-        initialState();
         IsoDep isoDep = IsoDep.get(tag);
-        isoDep.setTimeout(3000);
         Log.d("CardReader", tag.toString());
-        mCardCommunicationTask = new CardCommunicationTask(this);
+        if (mCardCommunicationTask != null) {
+            mCardCommunicationTask.onCancelled();
+            mCardCommunicationTask = null;
+        }
+        mCardCommunicationTask = new CardCommunicationTask();
         mCardCommunicationTask.execute(isoDep);
     }
 
 
     public class CardCommunicationTask extends AsyncTask<IsoDep, String, String> {
 
-        private MainActivity mMainActivity;
-        private String mStatus;
+        private IsoDep isoDep;
 
-        public CardCommunicationTask(MainActivity activity) {
-            this.mMainActivity = activity;
-        }
 
         @Override
         protected String doInBackground(IsoDep... params) {
-            String result = "";
+            byte[] byteResponse;
+            String cardResponse;
+            ArrayList<String> arrayList = new ArrayList<>();
+            isoDep = params[0];
+
             try {
-                ArrayList<String> arrayList = new ArrayList<>();
-
-                IsoDep isoDep = params[0];
                 isoDep.connect();
-
-                byte[] cardResponse = isoDep.transceive(NFCUtils.createSelectAidApdu(NFCUtils.AID_ANDROID));
-                String stringCardMessage = new String(cardResponse);
-                publishProgress(stringCardMessage);
-
-                String message = "";
-
-                // First message, do uafRequest to FIDO Server
-                if (stringCardMessage.equals(DoorProtocol.HELLO.getDesc())) {
-                    String url = mSharedPreferences.getString("fido_server_endpoint", "");
-                    String endpoint = mSharedPreferences.getString("fido_auth_request", "");
-                    mUAFMessage = "";
-                    try {
-                        mUAFMessage = HttpUtils.get(url + endpoint).getPayload();
-                        arrayList = (ArrayList<String>) splitEqually(mUAFMessage, 259);
-                        message = "BLOCK:" + arrayList.size();
-                    } catch (Exception e) {
-                        Log.d("exception", e.toString());
-                        publishProgress("UAF AUTH REQUEST ERROR");
-                        message = DoorProtocol.READER_ERROR.getDesc();
-                        Log.d("background", "reader said: " + message);
-                        stringCardMessage = new String(isoDep.transceive(message.getBytes()));
-                        Log.d("background", "card said: " + stringCardMessage);
-                        publishProgress("card said: " + stringCardMessage);
-                        return "UAF AUTH REQUEST ERROR";
-                    }
-                }
-                boolean uafResponse = false;
-
-                lastSentMessage = message;
-                lastReceivedMessage = stringCardMessage;
-
-                while (isoDep.isConnected() && !Thread.interrupted()) {
-
-                    // Sending block size information
-                    if (!lastSentMessage.equals(message)) {
-                        Log.d("NFCLOOP", "reader said: " + message);
-                        lastSentMessage = message;
-                    }
-
-                    stringCardMessage = new String(isoDep.transceive(message.getBytes()));
-
-                    if (!lastReceivedMessage.equals(stringCardMessage)) {
-                        publishProgress("card said: " + stringCardMessage);
-                        Log.d("NFCLOOP", "card said:   " + stringCardMessage);
-                        lastReceivedMessage = stringCardMessage;
-                    }
-
-                    // Sending uafAuthRequest sliced in several 259bits blocks
-                    if (stringCardMessage.equals(DoorProtocol.NEXT.getDesc())) {
-                        for (int i = 0; i < arrayList.size(); i++) {
-                            isoDep.transceive(arrayList.get(i).getBytes());
-                        }
-                        // uafAuthRequest sent! So card, are you read to send me the response?
-                        message = DoorProtocol.READY.getDesc();
-
-                    } else {
-
-                        // Card does not have the uafResponse yet
-                        if (!uafResponse) {
-
-                            // Card does not have the response yet, please wait few seconds before ask again
-                            if (stringCardMessage.equals(DoorProtocol.WAIT.getDesc())) {
-//                                if (!lastReceivedMessage.equals(stringCardResponse)) {
-//                                    publishProgress("card said: " + DoorProtocol.WAIT.getDesc());
-//                                    Log.d("nfcloop", DoorProtocol.WAIT.getDesc());
-//                                }
-                                message = DoorProtocol.READY.getDesc();
-
-                                //Card is done! It has the response.
-                            } else if (stringCardMessage.equals(DoorProtocol.DONE.getDesc())) {
-                                publishProgress("card said: " + DoorProtocol.DONE.getDesc());
-//                                Log.d("nfcloop", "done");
-                                result = "done";
-                                message = "RESPONSE";
-                                uafResponse = true; //Card is done! It has the response.
-
-
-                                // Ops, something was wrong if the card.
-                            } else if (stringCardMessage.equals(DoorProtocol.ERROR.getDesc())) {
-                                publishProgress("card said: " + DoorProtocol.ERROR.getDesc());
-//                                Log.d("nfcloop", "card said: error");
-                                result = "CARD ERROR";
-                                mDoorIsLocked = true;
-                                mDoorMessage = "Locked";
-                                return result;
-                            }
-
-                            // Yes, card is ready to send the uafResponse
-                        } else {
-//                            Log.d("cardreader", "uafResponse: " + stringCardMessage);
-
-                            String uafResponseJson = stringCardMessage;
-                            String decoded = "";
-                            try {
-                                JSONObject json = new JSONObject(uafResponseJson);
-                                decoded = json.getString("uafProtocolMessage").replace("\\", "");
-
-                                // Sending card response to FIDO Server. Is it valid?
-                                String url = mSharedPreferences.getString("fido_server_endpoint", "");
-                                String endpoint = mSharedPreferences.getString("fido_auth_response", "");
-                                String serverResponse = HttpUtils.post(url + endpoint, decoded).getPayload();
-
-
-//                                Log.d("cardreader", "ServerResponse: " + serverResponse);
-
-                                // ******************************************************
-                                // TODO Check if it is valid response
-                                // IF VALID, then door opening and sending a positive response to card
-                                // ******************************************************
-                                Gson gson = new Gson();
-                                ServerResponse sResponse = gson.fromJson(serverResponse.substring(1, serverResponse.length() - 1), ServerResponse.class);
-//                                Log.d("fidoserver", sResponse.getStatus());
-                                if (!sResponse.getStatus().contains("KEY_NOT_REGISTERED")) {
-                                    mStatus = "Welcome, " + sResponse.getUsername();
-                                    mDoorMessage = "Opening";
-                                    mDoorIsLocked = false;
-                                    // Ok card, your access is granted
-                                    message = DoorProtocol.GRANTED.getDesc();
-                                    stringCardMessage = new String(isoDep.transceive(message.getBytes()));
-                                    result = DoorProtocol.GRANTED.getDesc();
-                                } else {
-                                    // I'm sorry, you are not allowed to enter
-                                    mDoorMessage = "Locked";
-                                    mDoorIsLocked = true;
-                                    message = DoorProtocol.DENY.getDesc();
-                                    stringCardMessage = new String(isoDep.transceive(message.getBytes()));
-                                    result = DoorProtocol.DENY.getDesc();
-                                }
-                                uafResponse = false;
-
-
-                                // ******************************************************
-                                // ******************************************************
-                                // ******************************************************
-
-                            } catch (Exception e) {
-                                Log.d("exception", e.toString());
-                                return "COMMUNICATION ERROR";
-                            }
-                            return result;
-                        }
-                    }
-                }
-                Log.d("CardReader", "Losing connection..bye bye");
-                publishProgress("Losing connection..bye bye");
-                isoDep.close();
+                byteResponse = isoDep.transceive(NFCUtils.createSelectAidApdu(NFCUtils.AID_ANDROID));
             } catch (Exception e) {
-                publishProgress(e.toString());
-                Log.d("ERROR", e.toString());
+                Log.d("initial", "connect + apdu: " + e.toString());
+                return ERROR.getDesc();
             }
-            return result;
+            cardResponse = new String(byteResponse);
+            publishProgress(cardResponse);
+
+            // First message, do uafRequest to FIDO Server
+            if (!cardResponse.equals(HELLO.getDesc())) {
+                Log.d("background", "First card message is wrong, bye!");
+                return ERROR.getDesc();
+            }
+
+            String message = "";
+
+            try {
+                String mUAFMessage = "";
+                String url = mSharedPreferences.getString("fido_server_endpoint", "");
+                String endpoint = mSharedPreferences.getString("fido_auth_request", "");
+
+                mUAFMessage = HttpUtils.get(url + endpoint).getPayload();
+                arrayList = (ArrayList<String>) splitEqually(mUAFMessage, 259);
+                message = "BLOCK:" + arrayList.size();
+
+            } catch (Exception e) {
+                Log.d("background", "HTTP Exception: " + e.toString());
+                publishProgress("UAF AUTH REQUEST ERROR");
+                return ERROR.getDesc();
+            }
+
+            boolean nextMessageIsUAFResponse = false;
+            String lastSentMessage = "";
+            String lastReceivedMessage = "";
+
+            while (isoDep.isConnected() && !Thread.interrupted()) {
+
+                try {
+                    byteResponse = isoDep.transceive(message.getBytes());
+                } catch (Exception e) {
+                    Log.d("nfc_loop", "transceive error: " + e.toString());
+                    return ERROR.getDesc();
+                }
+                cardResponse = new String(byteResponse);
+
+                // ******************************************
+                // DEBUG purpose only
+                if (!lastSentMessage.equals(message)) {
+                    Log.d("SENT", "Message sent: " + message);
+                    lastSentMessage = message;
+                }
+                if (!lastReceivedMessage.equals(cardResponse)) {
+                    Log.d("REC", "Message received: " + cardResponse);
+                    lastReceivedMessage = cardResponse;
+                }
+                // ******************************************
+
+
+                if (cardResponse.equals(ERROR.getDesc())) {
+                    return cardResponse;
+                }
+
+                if (cardResponse.equals(NEXT.getDesc())) {
+                    for (int i = 0; i < arrayList.size(); i++) {
+                        try {
+                            byteResponse = isoDep.transceive(arrayList.get(i).getBytes());
+                            Log.d("nfc_loop", "FOR: card response: " + new String(byteResponse));
+                        } catch (Exception e) {
+                            Log.d("nfc_loop", "FOR loop: transceive error: " + e.toString());
+                            return ERROR.getDesc();
+                        }
+                    }
+                    message = READY.getDesc();
+                    continue;
+                }
+
+                if (cardResponse.equals(WAIT.getDesc())) {
+                    message = READY.getDesc();
+                    continue;
+                }
+
+                if (cardResponse.equals(DONE.getDesc())) {
+                    message = RESPONSE.getDesc();
+                    nextMessageIsUAFResponse = true;
+                    continue;
+                }
+
+                if (nextMessageIsUAFResponse == true) {
+                    String uafResponseJson = cardResponse;
+                    String decoded = "";
+                    publishProgress("Checking card UAF response");
+                    try {
+                        JSONObject json = new JSONObject(uafResponseJson);
+                        decoded = json.getString("uafProtocolMessage").replace("\\", "");
+
+                        // Sending card response to FIDO Server. Is it valid?
+                        String url = mSharedPreferences.getString("fido_server_endpoint", "");
+                        String endpoint = mSharedPreferences.getString("fido_auth_response", "");
+                        String serverResponse = HttpUtils.post(url + endpoint, decoded).getPayload();
+
+                        // ******************************************************
+                        // TODO Check if it is valid response
+                        // IF VALID, then door opening and sending a positive response to card
+                        // ******************************************************
+                        Gson gson = new Gson();
+                        ServerResponse sResponse = gson.fromJson(serverResponse.substring(1, serverResponse.length() - 1), ServerResponse.class);
+                        if (!sResponse.getStatus().contains("KEY_NOT_REGISTERED")) {
+                            // Ok card, your access is granted
+                            cardResponse = new String(isoDep.transceive(GRANTED.getDesc().getBytes()));
+                            publishProgress("Access granted!");
+                            return GRANTED.getDesc();
+                        } else {
+                            // I'm sorry, you are not allowed to enter
+                            message = DENY.getDesc();
+                            cardResponse = new String(isoDep.transceive(message.getBytes()));
+                            publishProgress("Access denied!");
+                            return DENY.getDesc();
+                        }
+
+
+                        // ******************************************************
+                        // ******************************************************
+                        // ******************************************************
+
+
+                    } catch (Exception e) {
+                        Log.d("uafResponse", "Error to invoke FIDO Server: " + e.toString());
+                        return ERROR.getDesc();
+                    }
+                }
+
+
+            }//while
+            return "";
         }
 
         @Override
-        protected void onPostExecute(String s) {
-            super.onPostExecute(s);
-            if ((s.contains("ERROR")) || s.contains("LOSING CONNECTION")) {
-                mStatus = "Locked";
-                mDoorMessage = mStatus;
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+            Log.d("postexec", "end");
+            try {
+                isoDep.close();
+            } catch (IOException e) {
+                Log.d("postexec", "trying to close connection: " + e.toString());
             }
-            if (!s.equals("UAF AUTH REQUEST ERROR") && (!s.isEmpty())) {
-                isoDepAdapter.addMessage(s);
-                listView.smoothScrollToPosition(isoDepAdapter.getCount() - 1);
-            }
-            updateImage(mDoorIsLocked, mStatus);
-//            mMainActivity.initialState();
             mCardCommunicationTask = null;
+            updateInterface(result);
         }
 
         @Override
@@ -308,12 +279,25 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         @Override
         protected void onCancelled() {
             super.onCancelled();
-            mStatus = "Locked";
-            mDoorMessage = mStatus;
-            mDoorIsLocked = true;
-//            updateImage(mDoorIsLocked, mDoorMessage);
-            mMainActivity.initialState();
             mCardCommunicationTask = null;
+        }
+    }
+
+    public void updateInterface(String result) {
+        final ImageView imageView = (ImageView) findViewById(R.id.img_logo);
+        final TextView doorStatus = (TextView) findViewById(R.id.door_message);
+        if (result.equals(GRANTED.getDesc())) {
+            imageView.setImageResource(R.mipmap.open);
+            doorStatus.setText("Opening");
+            new CountDownTimer(10000, 100) {
+                public void onTick(long millisUntilFinished) {
+                }
+
+                public void onFinish() {
+                    imageView.setImageResource(R.mipmap.close);
+                    doorStatus.setText(R.string.door_message);
+                }
+            }.start();
         }
     }
 
@@ -334,8 +318,6 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 }
 
                 public void onFinish() {
-                    mDoorIsLocked = true;
-                    mDoorMessage = "Locked";
                     imageView.setImageResource(R.mipmap.close);
                     doorStatus.setText(R.string.door_message);
                 }
@@ -352,16 +334,16 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putBoolean("doorlocked", mDoorIsLocked);
-        outState.putString("door_message", mDoorMessage);
+//        outState.putBoolean("doorlocked", mDoorIsLocked);
+//        outState.putString("door_message", mDoorMessage);
     }
 
     @Override
     protected void onRestoreInstanceState(Bundle savedInstanceState) {
         super.onRestoreInstanceState(savedInstanceState);
-        mDoorIsLocked = savedInstanceState.getBoolean("doorlocked");
-        mDoorMessage = savedInstanceState.getString("door_message");
-        updateImage(mDoorIsLocked, mDoorMessage);
+//        mDoorIsLocked = savedInstanceState.getBoolean("doorlocked");
+//        mDoorMessage = savedInstanceState.getString("door_message");
+//        updateImage(mDoorIsLocked, mDoorMessage);
     }
 
     @Override
