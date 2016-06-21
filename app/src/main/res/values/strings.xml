@@ -1,6 +1,5 @@
 <resources>
 
-
     <string name="app_name">Door Lock</string>
     <string name="action_settings">Settings</string>
     <string name="activity_into">Hello</string>
@@ -22,6 +21,7 @@
     <string name="pref_default_reg_op_response">/fidouaf/v1/public/regResponse</string>
     <string name="pref_title_reg_op_request">Registration Operation Request</string>
     <string name="pref_default_reg_op_request">/fidouaf/v1/public/regRequest</string>
+    <string name="action_clear">Clear</string>
 
 
 </resources>

@@ -21,11 +21,12 @@ public class IsoDepAdapter extends BaseAdapter {
 
     public void addMessage(String message) {
         messageCounter++;
-        messages.add("Message [" + messageCounter + "]: " + message);
+        messages.add("[" + messageCounter + "]: " + message);
         notifyDataSetChanged();
     }
 
     public void clearMessages(){
+        messageCounter = 0;
         messages.clear();
         notifyDataSetChanged();
     }

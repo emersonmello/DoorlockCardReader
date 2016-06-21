@@ -9,14 +9,13 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.preference.PreferenceManager;
-import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -24,12 +23,8 @@ import android.widget.Toast;
 
 import com.google.gson.Gson;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.IOException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,11 +36,13 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     private NfcAdapter nfcAdapter;
     private ListView listView;
     private IsoDepAdapter isoDepAdapter;
-    private MyTask mMyTask = null;
+    private CardCommunicationTask mCardCommunicationTask = null;
     private SharedPreferences mSharedPreferences;
     private String mUAFMessage;
     private boolean mDoorIsLocked;
     private String mDoorMessage;
+    private String lastReceivedMessage;
+    private String lastSentMessage;
 
 
     @Override
@@ -61,26 +58,38 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
 
-
-        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-        assert fab != null;
-        fab.setOnClickListener(new View.OnClickListener() {
+        Button clear = (Button) findViewById(R.id.button_clear);
+        assert clear != null;
+        clear.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 isoDepAdapter.clearMessages();
                 Toast.makeText(view.getContext(), "Done", Toast.LENGTH_SHORT).show();
             }
         });
-        mDoorIsLocked = true;
-        mDoorMessage = "Locked";
-        updateImage(mDoorIsLocked, mDoorMessage);
+        initialState();
+        ImageView imageView = (ImageView) findViewById(R.id.img_logo);
+        TextView doorStatus = (TextView) findViewById(R.id.door_message);
+        imageView.setImageResource(R.mipmap.close);
+        doorStatus.setText(R.string.door_message);
     }
+
+
+    public void initialState() {
+        mDoorMessage = "Locked";
+        mDoorIsLocked = true;
+        lastReceivedMessage = "";
+        lastSentMessage = "";
+        mUAFMessage = "";
+        mCardCommunicationTask = null;
+    }
+
 
     @Override
     public void onPause() {
         super.onPause();
         nfcAdapter.disableReaderMode(this);
-        mMyTask = null;
+        mCardCommunicationTask = null;
     }
 
     @Override
@@ -91,23 +100,21 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
     @Override
     public void onTagDiscovered(Tag tag) {
-        Log.i("CardReader", "Tag discovery" + tag.toString());
+        initialState();
         IsoDep isoDep = IsoDep.get(tag);
         isoDep.setTimeout(3000);
-        Log.i("CardReader", "MaxTransceiveLength: " + isoDep.getMaxTransceiveLength());
-        if (mMyTask == null) {
-            mMyTask = new MyTask(this);
-            mMyTask.execute(isoDep);
-        }
+        Log.d("CardReader", tag.toString());
+        mCardCommunicationTask = new CardCommunicationTask(this);
+        mCardCommunicationTask.execute(isoDep);
     }
 
 
-    public class MyTask extends AsyncTask<IsoDep, String, String> {
+    public class CardCommunicationTask extends AsyncTask<IsoDep, String, String> {
 
         private MainActivity mMainActivity;
         private String mStatus;
 
-        public MyTask(MainActivity activity) {
+        public CardCommunicationTask(MainActivity activity) {
             this.mMainActivity = activity;
         }
 
@@ -115,6 +122,8 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         protected String doInBackground(IsoDep... params) {
             String result = "";
             try {
+                ArrayList<String> arrayList = new ArrayList<>();
+
                 IsoDep isoDep = params[0];
                 isoDep.connect();
 
@@ -123,39 +132,50 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 publishProgress(stringCardMessage);
 
                 String message = "";
-                ArrayList<String> arrayList = new ArrayList<>();
 
+                // First message, do uafRequest to FIDO Server
                 if (stringCardMessage.equals(DoorProtocol.HELLO.getDesc())) {
                     String url = mSharedPreferences.getString("fido_server_endpoint", "");
                     String endpoint = mSharedPreferences.getString("fido_auth_request", "");
                     mUAFMessage = "";
-
                     try {
                         mUAFMessage = HttpUtils.get(url + endpoint).getPayload();
-                        //handshake
                         arrayList = (ArrayList<String>) splitEqually(mUAFMessage, 259);
                         message = "BLOCK:" + arrayList.size();
-                    } catch (NoSuchAlgorithmException e) {
-                        e.printStackTrace();
-                    } catch (KeyManagementException e) {
-                        e.printStackTrace();
                     } catch (Exception e) {
-                        if (mUAFMessage.isEmpty()) {
-                            publishProgress("AUTH REQUEST ERROR");
-                            return "AUTH REQUEST ERROR";
-                        }
+                        Log.d("exception", e.toString());
+                        publishProgress("UAF AUTH REQUEST ERROR");
+                        message = DoorProtocol.READER_ERROR.getDesc();
+                        Log.d("background", "reader said: " + message);
+                        stringCardMessage = new String(isoDep.transceive(message.getBytes()));
+                        Log.d("background", "card said: " + stringCardMessage);
+                        publishProgress("card said: " + stringCardMessage);
+                        return "UAF AUTH REQUEST ERROR";
                     }
                 }
-
                 boolean uafResponse = false;
+
+                lastSentMessage = message;
+                lastReceivedMessage = stringCardMessage;
 
                 while (isoDep.isConnected() && !Thread.interrupted()) {
 
                     // Sending block size information
+                    if (!lastSentMessage.equals(message)) {
+                        Log.d("NFCLOOP", "reader said: " + message);
+                        lastSentMessage = message;
+                    }
+
                     stringCardMessage = new String(isoDep.transceive(message.getBytes()));
 
+                    if (!lastReceivedMessage.equals(stringCardMessage)) {
+                        publishProgress("card said: " + stringCardMessage);
+                        Log.d("NFCLOOP", "card said:   " + stringCardMessage);
+                        lastReceivedMessage = stringCardMessage;
+                    }
+
                     // Sending uafAuthRequest sliced in several 259bits blocks
-                    if (stringCardMessage.equals("NEXT")) {
+                    if (stringCardMessage.equals(DoorProtocol.NEXT.getDesc())) {
                         for (int i = 0; i < arrayList.size(); i++) {
                             isoDep.transceive(arrayList.get(i).getBytes());
                         }
@@ -169,16 +189,16 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
                             // Card does not have the response yet, please wait few seconds before ask again
                             if (stringCardMessage.equals(DoorProtocol.WAIT.getDesc())) {
-                                publishProgress("wait");
-                                Log.d("nfcloop", "wait");
-                                Thread.sleep(2000);
+//                                if (!lastReceivedMessage.equals(stringCardResponse)) {
+//                                    publishProgress("card said: " + DoorProtocol.WAIT.getDesc());
+//                                    Log.d("nfcloop", DoorProtocol.WAIT.getDesc());
+//                                }
                                 message = DoorProtocol.READY.getDesc();
-
 
                                 //Card is done! It has the response.
                             } else if (stringCardMessage.equals(DoorProtocol.DONE.getDesc())) {
-                                publishProgress("done");
-                                Log.d("nfcloop", "done");
+                                publishProgress("card said: " + DoorProtocol.DONE.getDesc());
+//                                Log.d("nfcloop", "done");
                                 result = "done";
                                 message = "RESPONSE";
                                 uafResponse = true; //Card is done! It has the response.
@@ -186,10 +206,11 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
                                 // Ops, something was wrong if the card.
                             } else if (stringCardMessage.equals(DoorProtocol.ERROR.getDesc())) {
-                                publishProgress("error");
-                                Log.d("nfcloop", "error");
-                                result = "error";
+                                publishProgress("card said: " + DoorProtocol.ERROR.getDesc());
+//                                Log.d("nfcloop", "card said: error");
+                                result = "CARD ERROR";
                                 mDoorIsLocked = true;
+                                mDoorMessage = "Locked";
                                 return result;
                             }
 
@@ -208,6 +229,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                                 String endpoint = mSharedPreferences.getString("fido_auth_response", "");
                                 String serverResponse = HttpUtils.post(url + endpoint, decoded).getPayload();
 
+
 //                                Log.d("cardreader", "ServerResponse: " + serverResponse);
 
                                 // ******************************************************
@@ -216,38 +238,43 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                                 // ******************************************************
                                 Gson gson = new Gson();
                                 ServerResponse sResponse = gson.fromJson(serverResponse.substring(1, serverResponse.length() - 1), ServerResponse.class);
-
-                                mStatus = "Welcome, " + sResponse.getUsername();
-                                mDoorMessage = mStatus;
-                                mDoorIsLocked = false;
-
-                                // Ok card, your access is granted
-                                isoDep.transceive(DoorProtocol.GRANTED.getDesc().getBytes());
+//                                Log.d("fidoserver", sResponse.getStatus());
+                                if (!sResponse.getStatus().contains("KEY_NOT_REGISTERED")) {
+                                    mStatus = "Welcome, " + sResponse.getUsername();
+                                    mDoorMessage = "Opening";
+                                    mDoorIsLocked = false;
+                                    // Ok card, your access is granted
+                                    message = DoorProtocol.GRANTED.getDesc();
+                                    stringCardMessage = new String(isoDep.transceive(message.getBytes()));
+                                    result = DoorProtocol.GRANTED.getDesc();
+                                } else {
+                                    // I'm sorry, you are not allowed to enter
+                                    mDoorMessage = "Locked";
+                                    mDoorIsLocked = true;
+                                    message = DoorProtocol.DENY.getDesc();
+                                    stringCardMessage = new String(isoDep.transceive(message.getBytes()));
+                                    result = DoorProtocol.DENY.getDesc();
+                                }
                                 uafResponse = false;
-                                result = "granted";
+
 
                                 // ******************************************************
                                 // ******************************************************
                                 // ******************************************************
 
                             } catch (Exception e) {
-                                return "ERROR TO PROCESS UAF RESPONSE";
+                                Log.d("exception", e.toString());
+                                return "COMMUNICATION ERROR";
                             }
-
                             return result;
                         }
                     }
                 }
                 Log.d("CardReader", "Losing connection..bye bye");
-                if (mStatus.equals("Authenticating")) {
-                    mStatus = "Locked";
-                    mDoorIsLocked = true;
-                    updateImage(mDoorIsLocked, "Locked");
-                    result = "LOSING CONNECTION";
-                }
+                publishProgress("Losing connection..bye bye");
                 isoDep.close();
             } catch (Exception e) {
-                publishProgress(e.getMessage());
+                publishProgress(e.toString());
                 Log.d("ERROR", e.toString());
             }
             return result;
@@ -260,18 +287,22 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 mStatus = "Locked";
                 mDoorMessage = mStatus;
             }
-            isoDepAdapter.addMessage(s);
-            listView.smoothScrollToPosition(isoDepAdapter.getCount() - 1);
+            if (!s.equals("UAF AUTH REQUEST ERROR") && (!s.isEmpty())) {
+                isoDepAdapter.addMessage(s);
+                listView.smoothScrollToPosition(isoDepAdapter.getCount() - 1);
+            }
             updateImage(mDoorIsLocked, mStatus);
+//            mMainActivity.initialState();
+            mCardCommunicationTask = null;
         }
 
         @Override
         protected void onProgressUpdate(String... values) {
             super.onProgressUpdate(values);
-            isoDepAdapter.addMessage(values[0]);
-            listView.smoothScrollToPosition(isoDepAdapter.getCount() - 1);
-            mDoorMessage = "Authenticating: " + values[0];
-            updateImage(true, mDoorMessage);
+            if (!values[0].isEmpty()) {
+                isoDepAdapter.addMessage(values[0]);
+                listView.smoothScrollToPosition(isoDepAdapter.getCount() - 1);
+            }
         }
 
         @Override
@@ -280,7 +311,9 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
             mStatus = "Locked";
             mDoorMessage = mStatus;
             mDoorIsLocked = true;
-            updateImage(mDoorIsLocked, mDoorMessage);
+//            updateImage(mDoorIsLocked, mDoorMessage);
+            mMainActivity.initialState();
+            mCardCommunicationTask = null;
         }
     }
 
@@ -290,6 +323,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         final TextView doorStatus = (TextView) findViewById(R.id.door_message);
 
         int image = (locked) ? R.mipmap.close : R.mipmap.open;
+        message = (message == null) ? "Locked" : message;
 
         imageView.setImageResource(image);
         doorStatus.setText(message);
@@ -318,7 +352,6 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        ImageView imageView = (ImageView) findViewById(R.id.img_logo);
         outState.putBoolean("doorlocked", mDoorIsLocked);
         outState.putString("door_message", mDoorMessage);
     }
@@ -337,14 +370,20 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         return true;
     }
 
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.action_settings) {
-            Intent intent = new Intent(this, SettingsActivity.class);
-            startActivity(intent);
+        switch (id) {
+            case R.id.action_settings:
+                Intent intent = new Intent(this, SettingsActivity.class);
+                startActivity(intent);
+                break;
+            case R.id.action_clear:
+                isoDepAdapter.clearMessages();
+                Toast.makeText(getApplicationContext(), "Done", Toast.LENGTH_SHORT).show();
+                break;
         }
-
         return super.onOptionsItemSelected(item);
     }
 
