@@ -104,13 +104,13 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
     }
 
 
-    public class CardCommunicationTask extends AsyncTask<IsoDep, String, String> {
+    public class CardCommunicationTask extends AsyncTask<IsoDep, String, DoorProtocol> {
 
         private IsoDep isoDep;
 
 
         @Override
-        protected String doInBackground(IsoDep... params) {
+        protected DoorProtocol doInBackground(IsoDep... params) {
             byte[] byteResponse;
             String cardResponse;
             ArrayList<String> arrayList = new ArrayList<>();
@@ -121,7 +121,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 byteResponse = isoDep.transceive(NFCUtils.createSelectAidApdu(NFCUtils.AID_ANDROID));
             } catch (Exception e) {
                 Log.d("initial", "connect + apdu: " + e.toString());
-                return ERROR.getDesc();
+                return ERROR;
             }
             cardResponse = new String(byteResponse);
             publishProgress(cardResponse);
@@ -129,7 +129,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
             // First message, do uafRequest to FIDO Server
             if (!cardResponse.equals(HELLO.getDesc())) {
                 Log.d("background", "First card message is wrong, bye!");
-                return ERROR.getDesc();
+                return ERROR;
             }
 
             String message = "";
@@ -146,7 +146,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
             } catch (Exception e) {
                 Log.d("background", "HTTP Exception: " + e.toString());
                 publishProgress("UAF AUTH REQUEST ERROR");
-                return ERROR.getDesc();
+                return ERROR;
             }
 
             boolean nextMessageIsUAFResponse = false;
@@ -159,7 +159,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                     byteResponse = isoDep.transceive(message.getBytes());
                 } catch (Exception e) {
                     Log.d("nfc_loop", "transceive error: " + e.toString());
-                    return ERROR.getDesc();
+                    return ERROR;
                 }
                 cardResponse = new String(byteResponse);
 
@@ -175,9 +175,9 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 }
                 // ******************************************
 
-
                 if (cardResponse.equals(ERROR.getDesc())) {
-                    return cardResponse;
+                    publishProgress("Error on card side");
+                    return ERROR;
                 }
 
                 if (cardResponse.equals(NEXT.getDesc())) {
@@ -187,7 +187,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                             Log.d("nfc_loop", "FOR: card response: " + new String(byteResponse));
                         } catch (Exception e) {
                             Log.d("nfc_loop", "FOR loop: transceive error: " + e.toString());
-                            return ERROR.getDesc();
+                            return ERROR;
                         }
                     }
                     message = READY.getDesc();
@@ -228,13 +228,13 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                             // Ok card, your access is granted
                             cardResponse = new String(isoDep.transceive(GRANTED.getDesc().getBytes()));
                             publishProgress("Access granted!");
-                            return GRANTED.getDesc();
+                            return GRANTED;
                         } else {
                             // I'm sorry, you are not allowed to enter
                             message = DENY.getDesc();
                             cardResponse = new String(isoDep.transceive(message.getBytes()));
                             publishProgress("Access denied!");
-                            return DENY.getDesc();
+                            return DENY;
                         }
 
 
@@ -245,17 +245,17 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
                     } catch (Exception e) {
                         Log.d("uafResponse", "Error to invoke FIDO Server: " + e.toString());
-                        return ERROR.getDesc();
+                        return ERROR;
                     }
                 }
 
 
             }//while
-            return "";
+            return OK;
         }
 
         @Override
-        protected void onPostExecute(String result) {
+        protected void onPostExecute(DoorProtocol result) {
             super.onPostExecute(result);
             Log.d("postexec", "end");
             try {
@@ -283,10 +283,10 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
         }
     }
 
-    public void updateInterface(String result) {
+    public void updateInterface(DoorProtocol result) {
         final ImageView imageView = (ImageView) findViewById(R.id.img_logo);
         final TextView doorStatus = (TextView) findViewById(R.id.door_message);
-        if (result.equals(GRANTED.getDesc())) {
+        if (result == GRANTED) {
             imageView.setImageResource(R.mipmap.open);
             doorStatus.setText("Opening");
             new CountDownTimer(10000, 100) {
