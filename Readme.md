@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/emersonmello/DoorlockCardReader.svg?branch=master)](https://travis-ci.org/emersonmello/DoorlockCardReader)
+
 # Door lock NFC card reader for Android mobile phone
 
 ## Motivation
