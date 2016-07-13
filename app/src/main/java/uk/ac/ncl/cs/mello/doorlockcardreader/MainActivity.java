@@ -206,10 +206,22 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
                 }
 
                 if (nextMessageIsUAFResponse == true) {
-                    String uafResponseJson = cardResponse;
-                    String decoded = "";
-                    publishProgress("Checking card UAF response");
+                    String uafResponseJson;
+                    StringBuilder stringBuilder = new StringBuilder();
                     try {
+                        String sSize = cardResponse.split(":")[1];
+                        int size = Integer.parseInt(sSize);
+                        for (int i = 0; i < size; i++){
+                            byteResponse = isoDep.transceive(NEXT.getDesc().getBytes());
+                            stringBuilder.append(new String(byteResponse));
+                        }
+                        uafResponseJson = stringBuilder.toString();
+
+                        String decoded = "";
+                        publishProgress("Checking card UAF response");
+
+
+
                         JSONObject json = new JSONObject(uafResponseJson);
                         decoded = json.getString("uafProtocolMessage").replace("\\", "");
 
@@ -244,7 +256,7 @@ public class MainActivity extends AppCompatActivity implements NfcAdapter.Reader
 
 
                     } catch (Exception e) {
-                        Log.d("uafResponse", "Error to invoke FIDO Server: " + e.toString());
+                        Log.d("uafResponse", "To process uafMessage: " + e.toString());
                         return ERROR;
                     }
                 }
