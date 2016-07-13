@@ -31,7 +31,7 @@ Figure below shows all necessary components and the relation between them
 
 1. Start **FIDO UAF Demo Server**
 1. Install [Door lock NFC card reader for Android](https://github.com/emersonmello/DoorlockCardReader)
-1. On **Door lock card reder for Android** touch on "Settings" on the main application menu and update "server endpoint" field to the **IP Address** and **PORT** where you are running the **FIDO UAF Demo Server**
+1. On **Door lock card reader for Android** touch on "Settings" on the main application menu and update "server endpoint" field to the **IP Address** and **PORT** where you are running the **FIDO UAF Demo Server**
 1. Install **Dummy FIDO UAF Client** and **Opening Door Android App** on your another Android phone
 1. On **Opening Door Android App** touch on "Settings" on the main application menu and update "server endpoint" field to the **IP Address** and **PORT** where you are running the **FIDO UAF Demo Server**  
 1. On **Opening Door Android App** touch on "See app facetID" on the main application menu and insert the showed value in FIDO UAF Demo Server MySQL database:
